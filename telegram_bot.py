@@ -1,11 +1,24 @@
 import telebot
 import requests
+import re
+from bs4 import BeautifulSoup
 from telebot import types
 import mysql.connector
 from mysql.connector import Error
 from config import telegram_token, db_config
 
 bot = telebot.TeleBot(telegram_token)
+
+# Загрузка имен и достопримечательностей из файлов
+sights_file_path = 'файлы с данными/sights_volgograd.txt'
+vip_persons_file_path = 'файлы с данными/VIP_persons_volgograd.txt'
+
+with open(sights_file_path, 'r', encoding='utf-8') as sights_file:
+    sights = [line.strip() for line in sights_file]
+
+with open(vip_persons_file_path, 'r', encoding='utf-8') as vip_persons_file:
+    vip_persons = [line.strip() for line in vip_persons_file]
+
 
 # Функция для обработки команды /start
 @bot.message_handler(commands=['start'])
@@ -90,12 +103,87 @@ def callback_inline(call):
         if call.data.startswith("vip_"):
             # Обработка нажатия на кнопку "Vip-персоны"
             news_id = int(call.data.split("_")[1])
-            bot.send_message(call.message.chat.id, f"Вы выбрали Vip-персоны для новости с ID {news_id}")
+            news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
+            vip_persons_mentions = find_mentions_in_text(news_text, vip_persons)
+            bot.send_message(call.message.chat.id, f"Упоминания VIP-персон в новости: {', '.join(vip_persons_mentions)}")
         elif call.data.startswith("attractions_"):
             # Обработка нажатия на кнопку "Достопримечательности"
             news_id = int(call.data.split("_")[1])
-            bot.send_message(call.message.chat.id, f"Вы выбрали Достопримечательности для новости с ID {news_id}")
+            news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
+            sights_mentions = find_mentions_in_text(news_text, sights)
+            bot.send_message(call.message.chat.id, f"Упоминания достопримечательностей в новости: {', '.join(sights_mentions)}")
+
+# Функция для получения текста новости с сайта
+def get_news_text_from_website(news_id):
+    try:
+        # Получение ссылки на новость
+        news_link = get_news_link_by_id(news_id)
+
+        if not news_link:
+            print(f"Ссылка на новость с ID {news_id} не найдена.")
+            return ""
+
+        # Отправка запроса на сайт
+        response = requests.get(news_link)
+
+        # Проверка успешности запроса
+        if response.status_code == 200:
+            # Получение HTML-кода страницы
+            html_content = response.text
+
+            # Парсинг HTML-кода страницы
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Извлечение текста новости
+            news_text_element = soup.find('div', class_='news-text')
+            news_text = news_text_element.get_text() if news_text_element else ""
+
+            # Возврат текста новости
+            print(news_text)
+            return news_text
+        else:
+            print(f"Не удалось получить страницу новости. Код состояния: {response.status_code}")
+            return ""
+    except Exception as e:
+        print(f"Ошибка при получении текста новости: {e}")
+        return ""
+
+
+# Функция для поиска упоминаний в тексте
+def find_mentions_in_text(text, entities):
+    mentions = []
+    for entity in entities:
+        # Создаем регулярное выражение, учитывая возможные формы имени и фамилии
+        pattern = r'\b(?:{}(?:[ау])?)\b'.format(re.escape(entity))
+
+        # Ищем совпадения в тексте
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        mentions.extend(matches)
+    return mentions
+
+def get_news_link_by_id(news_id):
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+
+        query = f"SELECT link FROM news WHERE id = {news_id}"
+        cursor.execute(query)
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]  # Возвращаем первый столбец результата (ссылка на новость)
+        else:
+            print(f"Ссылка на новость с ID {news_id} не найдена.")
+            return ""
+
+    except Error as e:
+        print(f"Ошибка при выполнении запроса к базе данных: {e}")
+        return ""
+
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
-
