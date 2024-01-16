@@ -1,4 +1,5 @@
 import telebot
+import requests
 from telebot import types
 import mysql.connector
 from mysql.connector import Error
@@ -52,11 +53,25 @@ def get_news(message, order_by=None, limit=None):
             news_text = f"<b>{title}</b>\n\n{news[2]}\n\n\n{news[4]}\n\n{news[3]}"
             image_link = news[5]
 
-            # Отправка изображения
+            # Создание инлайн-клавиатуры с мини-кнопками
+            inline_keyboard = types.InlineKeyboardMarkup(row_width=2)
+            btn_vip = types.InlineKeyboardButton("Vip-персоны", callback_data=f"vip_{news[0]}")
+            btn_attractions = types.InlineKeyboardButton("Достопримечательности",
+                                                         callback_data=f"attractions_{news[0]}")
+            inline_keyboard.add(btn_vip, btn_attractions)
+
+            # Отправка изображения и текста с инлайн-клавиатурой
             if image_link:
-                bot.send_photo(message.chat.id, image_link, caption=news_text, parse_mode='HTML')
+                response = requests.get(image_link)
+                if response.status_code == 200:
+                    image_data = response.content
+                    # Отправка изображения и текста
+                    bot.send_photo(message.chat.id, photo=image_data, caption=news_text, parse_mode='HTML',
+                                   reply_markup=inline_keyboard)
+                else:
+                    print(f"Не удалось загрузить изображение: {image_link}")
             else:
-                bot.send_message(message.chat.id, news_text, parse_mode='HTML')
+                bot.send_message(message.chat.id, news_text, parse_mode='HTML', reply_markup=inline_keyboard)
 
     except Error as e:
         print(f"Ошибка при запросе к базе данных: {e}")
@@ -67,7 +82,20 @@ def get_news(message, order_by=None, limit=None):
             cursor.close()
             connection.close()
 
+
+# Обработка нажатий на мини-кнопки
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+    if call.message:
+        if call.data.startswith("vip_"):
+            # Обработка нажатия на кнопку "Vip-персоны"
+            news_id = int(call.data.split("_")[1])
+            bot.send_message(call.message.chat.id, f"Вы выбрали Vip-персоны для новости с ID {news_id}")
+        elif call.data.startswith("attractions_"):
+            # Обработка нажатия на кнопку "Достопримечательности"
+            news_id = int(call.data.split("_")[1])
+            bot.send_message(call.message.chat.id, f"Вы выбрали Достопримечательности для новости с ID {news_id}")
+
 if __name__ == "__main__":
     bot.polling(none_stop=True)
-
 
