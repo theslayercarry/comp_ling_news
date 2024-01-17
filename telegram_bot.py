@@ -19,7 +19,6 @@ with open(sights_file_path, 'r', encoding='utf-8') as sights_file:
 with open(vip_persons_file_path, 'r', encoding='utf-8') as vip_persons_file:
     vip_persons = [line.strip() for line in vip_persons_file]
 
-
 # Функция для обработки команды /start
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -27,7 +26,7 @@ def start(message):
     button_all = types.KeyboardButton("Показать все новости")
     button_latest = types.KeyboardButton("Показать последние новости")
     keyboard.add(button_all, button_latest)
-    bot.send_message(message.chat.id, 'Привет! Я бот новостей. Выбери опцию, чтобы получить новости.', reply_markup=keyboard)
+    bot.send_message(message.chat.id, 'Привет! Я бот новостей. Выбери опцию, чтобы быть в курсе последних событий, произошедших в Волгограде.', reply_markup=keyboard)
 
 # Функция для обработки команды /get_news
 @bot.message_handler(commands=['get_news'])
@@ -67,8 +66,8 @@ def get_news(message, order_by=None, limit=None):
             image_link = news[5]
 
             # Создание инлайн-клавиатуры с мини-кнопками
-            inline_keyboard = types.InlineKeyboardMarkup(row_width=2)
-            btn_vip = types.InlineKeyboardButton("Vip-персоны", callback_data=f"vip_{news[0]}")
+            inline_keyboard = types.InlineKeyboardMarkup(row_width=1)
+            btn_vip = types.InlineKeyboardButton("VIP-персоны", callback_data=f"vip_{news[0]}")
             btn_attractions = types.InlineKeyboardButton("Достопримечательности",
                                                          callback_data=f"attractions_{news[0]}")
             inline_keyboard.add(btn_vip, btn_attractions)
@@ -95,7 +94,6 @@ def get_news(message, order_by=None, limit=None):
             cursor.close()
             connection.close()
 
-
 # Обработка нажатий на мини-кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -105,13 +103,15 @@ def callback_inline(call):
             news_id = int(call.data.split("_")[1])
             news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             vip_persons_mentions = find_mentions_in_text(news_text, vip_persons)
-            bot.send_message(call.message.chat.id, f"Упоминания VIP-персон в новости: {', '.join(vip_persons_mentions)}")
+            formatted_mentions = format_mentions_with_context(vip_persons_mentions, news_text)
+            bot.send_message(call.message.chat.id, f"Упоминания VIP-персон в новости:\n\n{formatted_mentions}")
         elif call.data.startswith("attractions_"):
             # Обработка нажатия на кнопку "Достопримечательности"
             news_id = int(call.data.split("_")[1])
             news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             sights_mentions = find_mentions_in_text(news_text, sights)
-            bot.send_message(call.message.chat.id, f"Упоминания достопримечательностей в новости: {', '.join(sights_mentions)}")
+            formatted_mentions = format_mentions_with_context(sights_mentions, news_text)
+            bot.send_message(call.message.chat.id, f"Упоминания достопримечательностей в новости:\n\n{formatted_mentions}")
 
 # Функция для получения текста новости с сайта
 def get_news_text_from_website(news_id):
@@ -148,19 +148,30 @@ def get_news_text_from_website(news_id):
         print(f"Ошибка при получении текста новости: {e}")
         return ""
 
-
-# Функция для поиска упоминаний в тексте
+# Функция для поиска упоминаний в тексте с контекстом
 def find_mentions_in_text(text, entities):
+    characters_after_word = 55  # Количество символов после слова
     mentions = []
     for entity in entities:
         # Создаем регулярное выражение, учитывая возможные формы имени и фамилии
         pattern = r'\b(?:{}(?:[ау])?)\b'.format(re.escape(entity))
 
         # Ищем совпадения в тексте
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        mentions.extend(matches)
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        mentions.extend([(match.group(), match.end(), match.end() + characters_after_word) for match in matches])
     return mentions
 
+
+# Функция для форматирования упоминаний с контекстом
+def format_mentions_with_context(mentions, text):
+    formatted_mentions = []
+    for mention, start, end in mentions:
+        context = text[start:end].strip()
+        formatted_mentions.append(f"● {mention} {context}")
+    return "\n\n".join(formatted_mentions)
+
+
+# Функция для ссылки новости по её id в базе данных
 def get_news_link_by_id(news_id):
     try:
         connection = mysql.connector.connect(**db_config)
