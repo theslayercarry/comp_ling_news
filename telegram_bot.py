@@ -1,11 +1,18 @@
+# ТЕЛЕГРАМ - БОТ
 import telebot
+import asyncio
 import requests
-import re
+import mysql.connector
+from fuzzywuzzy import fuzz
+from datetime import datetime
 from bs4 import BeautifulSoup
 from telebot import types
-import mysql.connector
 from mysql.connector import Error
 from config import telegram_token, db_config
+
+# Функции для переписывания и аннотации новости
+from rewriter import rewrite
+from summarizer import summarize
 
 bot = telebot.TeleBot(telegram_token)
 
@@ -19,6 +26,7 @@ with open(sights_file_path, 'r', encoding='utf-8') as sights_file:
 with open(vip_persons_file_path, 'r', encoding='utf-8') as vip_persons_file:
     vip_persons = [line.strip() for line in vip_persons_file]
 
+
 # Функция для обработки команды /start
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -26,12 +34,14 @@ def start(message):
     button_all = types.KeyboardButton("Показать все новости")
     button_latest = types.KeyboardButton("Показать последние новости")
     keyboard.add(button_all, button_latest)
-    bot.send_message(message.chat.id, 'Привет! Я бот новостей. Выбери опцию, чтобы быть в курсе последних событий, произошедших в Волгограде.', reply_markup=keyboard)
+    bot.send_message(message.chat.id, 'Привет! Я бот новостей. Выбери опцию, чтобы получить новости.', reply_markup=keyboard)
+
 
 # Функция для обработки команды /get_news
 @bot.message_handler(commands=['get_news'])
 def get_news_command(message):
     get_news(message)
+
 
 # Функция для обработки кнопок
 @bot.message_handler(func=lambda message: message.text in ["Показать все новости", "Показать последние новости"])
@@ -40,6 +50,7 @@ def show_news_options(message):
         get_news(message, order_by="date")
     elif message.text == "Показать последние новости":
         get_news(message, order_by="date DESC", limit=5)
+
 
 # Функция для отображения новостей
 def get_news(message, order_by=None, limit=None):
@@ -66,11 +77,16 @@ def get_news(message, order_by=None, limit=None):
             image_link = news[5]
 
             # Создание инлайн-клавиатуры с мини-кнопками
-            inline_keyboard = types.InlineKeyboardMarkup(row_width=1)
+            inline_keyboard = types.InlineKeyboardMarkup(row_width=2)
             btn_vip = types.InlineKeyboardButton("VIP-персоны", callback_data=f"vip_{news[0]}")
-            btn_attractions = types.InlineKeyboardButton("Достопримечательности",
-                                                         callback_data=f"attractions_{news[0]}")
-            inline_keyboard.add(btn_vip, btn_attractions)
+
+            btn_attractions = types.InlineKeyboardButton("Достопримечательности", callback_data=f"attractions_{news[0]}")
+
+            btn_rewriter = types.InlineKeyboardButton("Переписанная новость", callback_data=f"rewriter_{news[0]}")
+
+            btn_summarizer = types.InlineKeyboardButton("Аннотация", callback_data=f"summarizer_{news[0]}")
+
+            inline_keyboard.add(btn_vip, btn_attractions, btn_summarizer, btn_rewriter)
 
             # Отправка изображения и текста с инлайн-клавиатурой
             if image_link:
@@ -94,6 +110,7 @@ def get_news(message, order_by=None, limit=None):
             cursor.close()
             connection.close()
 
+
 # Обработка нажатий на мини-кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -104,14 +121,51 @@ def callback_inline(call):
             news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             vip_persons_mentions = find_mentions_in_text(news_text, vip_persons)
             formatted_mentions = format_mentions_with_context(vip_persons_mentions, news_text)
-            bot.send_message(call.message.chat.id, f"Упоминания VIP-персон в новости:\n\n{formatted_mentions}")
+            message_text = f"Упоминания VIP-персон в новости <b>{news_id}</b> :\n\n{formatted_mentions}"
+            bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+
         elif call.data.startswith("attractions_"):
             # Обработка нажатия на кнопку "Достопримечательности"
             news_id = int(call.data.split("_")[1])
             news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             sights_mentions = find_mentions_in_text(news_text, sights)
             formatted_mentions = format_mentions_with_context(sights_mentions, news_text)
-            bot.send_message(call.message.chat.id, f"Упоминания достопримечательностей в новости:\n\n{formatted_mentions}")
+            message_text = f"Упоминания достопримечательностей в новости <b>{news_id}</b> :\n\n{formatted_mentions}"
+            bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+
+        elif call.data.startswith("rewriter_"):
+            # Обработка нажатия на кнопку "Переписанная новость"
+            news_id = int(call.data.split("_")[1])
+            news_text = get_news_text_from_website(news_id)
+            asyncio.run(handle_rewriter(call, news_text, news_id))
+
+        elif call.data.startswith("summarizer_"):
+            # Обработка нажатия на кнопку "Аннотация"
+            news_id = int(call.data.split("_")[1])
+            news_text = get_news_text_from_website(news_id)
+            asyncio.run(handle_summarizer(call, news_text, news_id))
+
+
+# Асинхронные функции, которые ожидают выполнения функций rewrite и summarize
+# Функция для обработки аннотации новости
+async def handle_summarizer(call, news_text, news_id):
+    try:
+        formatted_mentions = await summarize(news_text)
+        message_text = f"Аннотация новости <b>{news_id}</b>:\n{formatted_mentions}"
+        bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+    except Exception as e:
+        print(f"Ошибка при обработке аннотации новости: {e}")
+
+
+# Функция для обработки переписанной новости
+async def handle_rewriter(call, news_text, news_id):
+    try:
+        formatted_mentions = await rewrite(news_text)
+        message_text = f"Переписанная новость <b>{news_id}</b>:\n{formatted_mentions}"
+        bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+    except Exception as e:
+        print(f"Ошибка при обработке переписанной новости: {e}")
+
 
 # Функция для получения текста новости с сайта
 def get_news_text_from_website(news_id):
@@ -138,8 +192,14 @@ def get_news_text_from_website(news_id):
             news_text_element = soup.find('div', class_='news-text')
             news_text = news_text_element.get_text() if news_text_element else ""
 
+            # Получаем текущее время
+            current_datetime = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
             # Возврат текста новости
+            characters = 250
+            print('-' * characters, '\n', current_datetime, '\n', '-' * characters)
             print(news_text)
+
             return news_text
         else:
             print(f"Не удалось получить страницу новости. Код состояния: {response.status_code}")
@@ -148,18 +208,35 @@ def get_news_text_from_website(news_id):
         print(f"Ошибка при получении текста новости: {e}")
         return ""
 
+
 # Функция для поиска упоминаний в тексте с контекстом
 def find_mentions_in_text(text, entities):
-    characters_after_word = 55  # Количество символов после слова
-    mentions = []
-    for entity in entities:
-        # Создаем регулярное выражение, учитывая возможные формы имени и фамилии
-        pattern = r'\b(?:{}(?:[ау])?)\b'.format(re.escape(entity))
+    characters_after_word = 0  # Количество символов после предложения
+    mentions = set()  # Используем множество для уникальных упоминаний
 
-        # Ищем совпадения в тексте
-        matches = re.finditer(pattern, text, re.IGNORECASE)
-        mentions.extend([(match.group(), match.end(), match.end() + characters_after_word) for match in matches])
-    return mentions
+    for entity in entities:
+        entity_words = entity.split()
+        entity_length = len(entity_words)
+
+        sentences = text.split('.')  # Разделяем текст на предложения
+
+        for sentence in sentences:
+            words = sentence.split()
+            i = 0
+            while i < len(words) - entity_length + 1:
+                window = words[i:i + entity_length]
+                window_text = ' '.join(window)
+
+                similarity_ratio = fuzz.ratio(' '.join(entity_words), window_text)
+
+                if similarity_ratio >= 90:  # Порог схожести (может потребоваться настройка)
+                    start_index = text.find(sentence)
+                    mentions.add((sentence.strip(), start_index, start_index + characters_after_word))
+                    break
+                else:
+                    i += 1  # Перейдем к следующему слову в предложении
+
+    return list(mentions)  # Преобразуем множество обратно в список для вывода
 
 
 # Функция для форматирования упоминаний с контекстом
@@ -195,6 +272,7 @@ def get_news_link_by_id(news_id):
         if connection.is_connected():
             cursor.close()
             connection.close()
+
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
