@@ -227,7 +227,7 @@ def find_mentions_in_text(text, entities):
                 window = words[i:i + entity_length]
                 window_text = ' '.join(window)
 
-                similarity_ratio = fuzz.ratio(' '.join(entity_words), window_text)
+                similarity_ratio = fuzz.ratio(' '.join(entity_words).lower(), window_text.lower())
 
                 if similarity_ratio >= 90:  # Порог схожести (может потребоваться настройка)
                     start_index = text.find(sentence)
