@@ -215,8 +215,8 @@ def find_mentions_in_text(text, entities):
     mentions = set()  # Используем множество для уникальных упоминаний
 
     for entity in entities:
-        entity_words = entity.split()
-        entity_length = len(entity_words)
+        entity_parts = entity.split()
+        entity_length = len(entity_parts)
 
         sentences = text.split('.')  # Разделяем текст на предложения
 
@@ -227,9 +227,11 @@ def find_mentions_in_text(text, entities):
                 window = words[i:i + entity_length]
                 window_text = ' '.join(window)
 
-                similarity_ratio = fuzz.ratio(' '.join(entity_words).lower(), window_text.lower())
+                # Проверяем схожесть для обоих вариантов имени и фамилии
+                similarity_ratio_forward = fuzz.ratio(' '.join(entity_parts).lower(), window_text.lower())
+                similarity_ratio_reverse = fuzz.ratio(' '.join(reversed(entity_parts)).lower(), window_text.lower())
 
-                if similarity_ratio >= 90:  # Порог схожести (может потребоваться настройка)
+                if similarity_ratio_forward >= 90 or similarity_ratio_reverse >= 90:
                     start_index = text.find(sentence)
                     mentions.add((sentence.strip(), start_index, start_index + characters_after_word))
                     break
