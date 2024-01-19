@@ -114,58 +114,52 @@ def get_news(message, order_by=None, limit=None):
 # Обработка нажатий на мини-кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
+    chat_id = call.message.chat.id
+    news_id = int(call.data.split("_")[1])
+    news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
     if call.message:
         if call.data.startswith("vip_"):
             # Обработка нажатия на кнопку "Vip-персоны"
-            news_id = int(call.data.split("_")[1])
-            news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             vip_persons_mentions = find_mentions_in_text(news_text, vip_persons)
             formatted_mentions = format_mentions_with_context(vip_persons_mentions, news_text)
-            message_text = f"Упоминания VIP-персон в новости <b>{news_id}</b> :\n\n{formatted_mentions}"
-            bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+            message_text = f"<b>Упоминания VIP-персон в новости:</b>\n\n{formatted_mentions}"
+            bot.send_message(chat_id, message_text, reply_to_message_id=call.message.message_id, parse_mode='HTML')
 
         elif call.data.startswith("attractions_"):
             # Обработка нажатия на кнопку "Достопримечательности"
-            news_id = int(call.data.split("_")[1])
-            news_text = get_news_text_from_website(news_id)  # Функция для получения текста новости с сайта
             sights_mentions = find_mentions_in_text(news_text, sights)
             formatted_mentions = format_mentions_with_context(sights_mentions, news_text)
-            message_text = f"Упоминания достопримечательностей в новости <b>{news_id}</b> :\n\n{formatted_mentions}"
-            bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+            message_text = f"<b>Упоминания достопримечательностей в новости:</b>\n\n{formatted_mentions}"
+            bot.send_message(chat_id, message_text, reply_to_message_id=call.message.message_id, parse_mode='HTML')
 
         elif call.data.startswith("rewriter_"):
             # Обработка нажатия на кнопку "Переписанная новость"
-            news_id = int(call.data.split("_")[1])
-            news_text = get_news_text_from_website(news_id)
-            asyncio.run(handle_rewriter(call, news_text, news_id))
+            asyncio.run(handle_rewriter(call, news_text, chat_id))
 
         elif call.data.startswith("summarizer_"):
             # Обработка нажатия на кнопку "Аннотация"
-            news_id = int(call.data.split("_")[1])
-            news_text = get_news_text_from_website(news_id)
-            asyncio.run(handle_summarizer(call, news_text, news_id))
+            asyncio.run(handle_summarizer(call, news_text, chat_id))
 
 
 # Асинхронные функции, которые ожидают выполнения функций rewrite и summarize
 # Функция для обработки аннотации новости
-async def handle_summarizer(call, news_text, news_id):
+async def handle_summarizer(call, news_text, chat_id):
     try:
         formatted_mentions = await summarize(news_text)
-        message_text = f"Аннотация новости <b>{news_id}</b>:\n{formatted_mentions}"
-        bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+        message_text = f"<b>Аннотация новости:</b>\n\n{formatted_mentions}"
+        bot.send_message(chat_id, message_text, reply_to_message_id=call.message.message_id, parse_mode='HTML')
     except Exception as e:
         print(f"Ошибка при обработке аннотации новости: {e}")
 
 
 # Функция для обработки переписанной новости
-async def handle_rewriter(call, news_text, news_id):
+async def handle_rewriter(call, news_text, chat_id):
     try:
         formatted_mentions = await rewrite(news_text)
-        message_text = f"Переписанная новость <b>{news_id}</b>:\n{formatted_mentions}"
-        bot.send_message(call.message.chat.id, message_text, parse_mode='HTML')
+        message_text = f"<b>Переписанная новость:</b>\n\n{formatted_mentions}"
+        bot.send_message(chat_id, message_text, reply_to_message_id=call.message.message_id, parse_mode='HTML')
     except Exception as e:
         print(f"Ошибка при обработке переписанной новости: {e}")
-
 
 # Функция для получения текста новости с сайта
 def get_news_text_from_website(news_id):
