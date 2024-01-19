@@ -161,6 +161,7 @@ async def handle_rewriter(call, news_text, chat_id):
     except Exception as e:
         print(f"Ошибка при обработке переписанной новости: {e}")
 
+
 # Функция для получения текста новости с сайта
 def get_news_text_from_website(news_id):
     try:
@@ -233,6 +234,7 @@ def find_mentions_in_text(text, entities):
                     i += 1  # Перейдем к следующему слову в предложении
 
     return list(mentions)  # Преобразуем множество обратно в список для вывода
+
 
 
 # Функция для форматирования упоминаний с контекстом
