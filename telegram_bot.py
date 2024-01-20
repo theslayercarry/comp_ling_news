@@ -226,7 +226,7 @@ def find_mentions_in_text(text, entities):
                 similarity_ratio_forward = fuzz.ratio(' '.join(entity_parts).lower(), window_text.lower())
                 similarity_ratio_reverse = fuzz.ratio(' '.join(reversed(entity_parts)).lower(), window_text.lower())
 
-                if similarity_ratio_forward >= 90 or similarity_ratio_reverse >= 90:
+                if similarity_ratio_forward >= 85 or similarity_ratio_reverse >= 85:
                     start_index = text.find(sentence)
                     mentions.add((sentence.strip(), start_index, start_index + characters_after_word))
                     break
